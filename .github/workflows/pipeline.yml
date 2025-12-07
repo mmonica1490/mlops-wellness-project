@@ -1,0 +1,62 @@
+name: mlops-pipeline
+
+on:
+  push:
+    branches: [ main ]    # Runs whenever you push to main
+  workflow_dispatch:       # Allows manual run
+
+permissions:
+  contents: write          # Required to push model updates to GitHub
+
+jobs:
+  train-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Get your repository code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 3. Install dependencies for training and deployment
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f "tourism_project/deployment/requirements.txt" ]; then \
+            pip install -r tourism_project/deployment/requirements.txt; \
+          fi
+
+      # 4. Train the model
+      - name: Train ML model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "Training model..."
+          python train.py
+
+      # 5. Deploy Gradio app to Hugging Face Space
+      - name: Deploy to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          echo "Deploying model to Space..."
+          python tourism_project/deployment/deploy_to_space.py
+
+      # 6. Push updated trained model to main branch
+      - name: Commit updated model artifacts
+        run: |
+          echo "Checking for changes..."
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git add tourism_project/models/best_rf_model.pkl || echo "Model file not found"
+          
+          git diff --cached --quiet || git commit -m "Update trained model [skip ci]"
+          
+          git push origin HEAD:main || echo "No changes to push."
